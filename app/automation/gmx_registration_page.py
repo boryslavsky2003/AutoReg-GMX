@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select, WebDriverWait
 
 from ..data_models import RegistrationData
 from .base_page import BasePage
@@ -51,6 +57,65 @@ class GMXRegistrationPage(BasePage):
     def open(self) -> None:
         logger.info("Opening GMX signup page: %s", self.base_url)
         self.driver.get(self.base_url)
+        self._dismiss_cookie_banner()
+
+    def _dismiss_cookie_banner(self, timeout_s: int = 15) -> None:
+        button_xpaths = (
+            "//button[normalize-space()='Accept all']",
+            "//button[normalize-space()='Alle akzeptieren']",
+            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept')]",
+        )
+        iframe_locators = (
+            (By.CSS_SELECTOR, "iframe[src*='consent']"),
+            (By.CSS_SELECTOR, "iframe[id^='sp_message_iframe']"),
+            (By.CSS_SELECTOR, "iframe[data-testid='uc-consent-iframe']"),
+        )
+
+        def click_accept_button() -> bool:
+            for button in self.driver.find_elements(
+                By.ID, "onetrust-accept-btn-handler"
+            ):
+                try:
+                    button.click()
+                    logger.info("Accepted cookie consent via OneTrust button")
+                    return True
+                except WebDriverException as exc:
+                    logger.debug("Failed to click OneTrust button: %s", exc)
+
+            for xpath in button_xpaths:
+                for button in self.driver.find_elements(By.XPATH, xpath):
+                    try:
+                        button.click()
+                        logger.info("Accepted cookie consent banner")
+                        return True
+                    except WebDriverException as exc:
+                        logger.debug(
+                            "Failed to click consent button located via %s: %s",
+                            xpath,
+                            exc,
+                        )
+                        continue
+            return False
+
+        end_time = time.time() + timeout_s
+        while time.time() < end_time:
+            if click_accept_button():
+                return
+
+            for locator in iframe_locators:
+                try:
+                    WebDriverWait(self.driver, 5).until(
+                        EC.frame_to_be_available_and_switch_to_it(locator)
+                    )
+                    if click_accept_button():
+                        self.driver.switch_to.default_content()
+                        return
+                except TimeoutException:
+                    continue
+                finally:
+                    self.driver.switch_to.default_content()
+
+            time.sleep(0.5)
 
     def fill_form(self, data: RegistrationData) -> None:
         logger.info("Filling signup form for %s", data.email_address)

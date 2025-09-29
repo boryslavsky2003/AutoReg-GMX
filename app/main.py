@@ -14,6 +14,7 @@ from typing import Any
 from .automation.registration_service import RegistrationOptions, RegistrationService
 from .config import SeleniumConfig, load_config
 from .data_models import RegistrationData, generate_registration_data
+from .driver_factory import ChromeBinaryNotFoundError
 from .env_loader import EnvFileNotFoundError, ensure_env_loaded
 from .logging_config import configure_logging
 from .utils.proxy import ProxyValidationError, ensure_proxy_connectivity
@@ -152,7 +153,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     service = RegistrationService(config)
-    result = service.register(registration, options)
+    try:
+        result = service.register(registration, options)
+    except ChromeBinaryNotFoundError as exc:
+        logging.error("%s", exc)
+        print(exc, file=sys.stderr)
+        return 1
 
     if args.dump_json:
         print(json.dumps(asdict(registration), default=_json_encode, indent=2))
