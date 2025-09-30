@@ -17,6 +17,15 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.webdriver import WebDriver
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Import stealth browser
+try:
+    import undetected_chromedriver as uc
+
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
+    uc = None
+
 from .config import SeleniumConfig
 
 try:  # Optional dependency for advanced proxy handling (e.g., SOCKS with auth)
@@ -281,7 +290,39 @@ def build_driver(config: SeleniumConfig) -> WebDriver:
         )
 
     try:
-        if use_selenium_wire:
+        # Try stealth browser first if available
+        if _STEALTH_AVAILABLE and not use_selenium_wire:
+            logger.info("🥷 Using STEALTH browser (undetected-chromedriver)")
+
+            # Use minimal stealth options to avoid conflicts
+            stealth_options = uc.ChromeOptions()
+
+            # Only add essential options
+            if config.headless:
+                stealth_options.add_argument("--headless=new")
+
+            # Add basic Chrome options for compatibility
+            stealth_options.add_argument("--no-sandbox")
+            stealth_options.add_argument("--disable-dev-shm-usage")
+            stealth_options.add_argument("--disable-gpu")
+            stealth_options.add_argument(
+                f"--window-size={config.window_width},{config.window_height}"
+            )
+
+            driver = uc.Chrome(
+                options=stealth_options,
+                version_main=None,  # Auto-detect Chrome version
+                use_subprocess=True,  # More stable
+            )
+
+            # Hide webdriver property
+            driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+
+            logger.info("✅ Stealth browser initialized successfully")
+
+        elif use_selenium_wire:
             seleniumwire_options = {
                 "proxy": {
                     # selenium-wire expects full schemes for upstream

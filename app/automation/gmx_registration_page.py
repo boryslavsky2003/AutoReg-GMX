@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass
 
@@ -776,9 +777,13 @@ class GMXRegistrationPage(BasePage):
         print("📧 SECOND PAGE: EMAIL REGISTRATION")
         print("=" * 80)
 
-        logger.info("Starting second page - Email field")
+        # Simulate reading the page before starting
+        print("📖 Reading page content...")
+        time.sleep(random.uniform(3.0, 7.0))
 
-        # Wait for second page to load
+        logger.info(
+            "Starting second page - Email field"
+        )  # Wait for second page to load
         time.sleep(1.5)
 
         # Generate and fill email with retry logic (increased attempts)
@@ -825,8 +830,18 @@ class GMXRegistrationPage(BasePage):
                         else:
                             print(f"❌ {email_local}@gmx.com is TAKEN")
                             print("⏭️  Trying next variant...")
+
+                            # Add increasing delays between failed attempts to avoid being flagged
+                            failure_delay = random.uniform(
+                                15.0 + (attempt * 5), 30.0 + (attempt * 10)
+                            )
+                            print(
+                                f"⏳ Cooling down for {failure_delay:.1f}s to avoid detection..."
+                            )
+                            time.sleep(failure_delay)
+
                             logger.warning(
-                                f"Email {email_local} is TAKEN - trying next variant"
+                                f"Email {email_local} is TAKEN - trying next variant after cooldown"
                             )
                             if attempt < max_attempts:
                                 continue
@@ -926,6 +941,21 @@ class GMXRegistrationPage(BasePage):
             f"Generated email local part: {base_email} (pattern {pattern_index + 1})"
         )
         return base_email
+
+    def _simulate_typing_mistake_and_correction(self, email_local: str) -> None:
+        """Simulate human typing mistakes and corrections to appear more natural."""
+        print("🤔 Simulating typing mistake...")
+
+        # Simulate typing wrong email first
+        wrong_email = email_local + "x"  # Add extra character
+        self._fast_fill_email_field(wrong_email)
+
+        # Pause as if realizing the mistake
+        time.sleep(random.uniform(1.0, 3.0))
+        print("✏️ Correcting typing mistake...")
+
+        # Clear and type correct email
+        time.sleep(random.uniform(0.5, 1.5))
 
     def _fill_email_field(self, email_local: str) -> bool:
         """Fill the email input field. Returns True if successful."""
