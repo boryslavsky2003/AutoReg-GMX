@@ -74,6 +74,13 @@ def _build_chrome_options(
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--no-sandbox")
+    # SSL/Security bypasses for proxy compatibility
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--ignore-ssl-errors")
+    options.add_argument("--allow-running-insecure-content")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--ignore-certificate-errors-spki-list")
+    options.add_argument("--ignore-urlfetcher-cert-requests")
 
     if config.headless:
         options.add_argument("--headless=new")
@@ -111,20 +118,22 @@ def _create_local_http_tunnel_for_socks(socks_url: str) -> tuple[str, subprocess
     socks_port = parsed.port or 1080
     socks_user = parsed.username
     socks_pass = parsed.password
-    
+
     # Find free local port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
+        s.bind(("127.0.0.1", 0))
         local_port = s.getsockname()[1]
-    
+
     # Use socat to create HTTP->SOCKS tunnel if available
     local_http_url = f"http://127.0.0.1:{local_port}"
-    
+
     try:
         if socks_user and socks_pass:
             # For authenticated SOCKS, we'll use a simple Python bridge
             cmd = [
-                "python", "-c", f"""
+                "python",
+                "-c",
+                f"""
 import socket, threading, select, sys
 from urllib.parse import unquote
 import socks
@@ -180,22 +189,30 @@ while True:
     t = threading.Thread(target=handle_client, args=(client, '{socks_host}', {socks_port}, '{socks_user}', '{socks_pass}'))
     t.daemon = True
     t.start()
-"""
+""",
             ]
         else:
             # No auth - use socat if available, fallback to Python
-            cmd = ["socat", f"TCP-LISTEN:{local_port},reuseaddr,fork", f"SOCKS4A:{socks_host}:{socks_port},socksport={socks_port}"]
-        
-        logger.debug("Starting local HTTP->SOCKS tunnel: %s", ' '.join(cmd[:3]))
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
+            cmd = [
+                "socat",
+                f"TCP-LISTEN:{local_port},reuseaddr,fork",
+                f"SOCKS4A:{socks_host}:{socks_port},socksport={socks_port}",
+            ]
+
+        logger.debug("Starting local HTTP->SOCKS tunnel: %s", " ".join(cmd[:3]))
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
         # Give tunnel time to start
         time.sleep(1)
         return local_http_url, proc
-        
+
     except FileNotFoundError:
         # Fallback: return original SOCKS URL and let Chrome try directly
-        logger.warning("Could not create HTTP tunnel for SOCKS (missing socat/python). Chrome will try direct SOCKS connection.")
+        logger.warning(
+            "Could not create HTTP tunnel for SOCKS (missing socat/python). Chrome will try direct SOCKS connection."
+        )
         return socks_url, None
 
 
@@ -205,27 +222,33 @@ def build_driver(config: SeleniumConfig) -> WebDriver:
         "socks5h",
         "socks4",
     }
-    
+
     use_selenium_wire = is_socks_proxy and _SELENIUM_WIRE_AVAILABLE
     use_local_tunnel = is_socks_proxy and not _SELENIUM_WIRE_AVAILABLE
-    
+
     tunnel_process = None
     effective_proxy_url = config.proxy_url
-    
+
     if use_local_tunnel and config.proxy_url:
-        logger.info("selenium-wire недоступний, створюю локальний HTTP тунель для SOCKS проксі")
-        effective_proxy_url, tunnel_process = _create_local_http_tunnel_for_socks(config.proxy_url)
+        logger.info(
+            "selenium-wire недоступний, створюю локальний HTTP тунель для SOCKS проксі"
+        )
+        effective_proxy_url, tunnel_process = _create_local_http_tunnel_for_socks(
+            config.proxy_url
+        )
         logger.info("Локальний тунель: %s -> %s", effective_proxy_url, config.proxy_url)
-    
+
     options = _build_chrome_options(
         config,
         attach_browser_proxy=not use_selenium_wire,
     )
-    
+
     # Override proxy URL for options if we created a tunnel
     if tunnel_process and effective_proxy_url != config.proxy_url:
         # Remove old proxy args and add new ones
-        options._arguments = [arg for arg in options._arguments if not arg.startswith('--proxy-server')]
+        options._arguments = [
+            arg for arg in options._arguments if not arg.startswith("--proxy-server")
+        ]
         options.add_argument(f"--proxy-server={effective_proxy_url}")
         options.add_argument("--proxy-bypass-list=<-loopback>")
 
@@ -286,7 +309,7 @@ def build_driver(config: SeleniumConfig) -> WebDriver:
             )
             if use_local_tunnel:
                 logger.info(
-                    "Using local tunnel proxy %s for SOCKS %s (scheme=%s)", 
+                    "Using local tunnel proxy %s for SOCKS %s (scheme=%s)",
                     effective_proxy_url,
                     config.proxy_url,
                     config.proxy_scheme,
@@ -301,11 +324,11 @@ def build_driver(config: SeleniumConfig) -> WebDriver:
 
     driver.implicitly_wait(config.implicit_wait_s)
     driver.set_page_load_timeout(config.page_load_timeout_s)
-    
+
     # Store tunnel process for cleanup
     if tunnel_process:
-        setattr(driver, '_tunnel_process', tunnel_process)
-    
+        setattr(driver, "_tunnel_process", tunnel_process)
+
     return driver
 
 
@@ -316,12 +339,12 @@ def managed_driver(config: SeleniumConfig) -> Iterator[WebDriver]:
         yield driver
     finally:
         # Clean up tunnel process if exists
-        if hasattr(driver, '_tunnel_process') and driver._tunnel_process:
+        if hasattr(driver, "_tunnel_process") and driver._tunnel_process:
             try:
                 driver._tunnel_process.terminate()
                 driver._tunnel_process.wait(timeout=5)
                 logger.debug("Закрито локальний проксі тунель")
             except Exception as e:
                 logger.warning("Помилка при закритті тунелю: %s", e)
-        
+
         driver.quit()
