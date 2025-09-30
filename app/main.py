@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict, replace
 from datetime import date
@@ -17,7 +18,13 @@ from .data_models import RegistrationData, generate_registration_data
 from .driver_factory import ChromeBinaryNotFoundError
 from .env_loader import EnvFileNotFoundError, ensure_env_loaded
 from .logging_config import configure_logging
-from .utils.proxy import ProxyValidationError, ensure_proxy_connectivity
+from .utils.proxy import (
+    ProxyFormatError,
+    ProxyValidationError,
+    ensure_proxy_connectivity,
+    normalise_proxy_url,
+)
+from .storage.credential_store import CredentialStore, CredentialStoreError
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,7 +69,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--proxy",
-        help="HTTP(S) proxy URL to route browser traffic through",
+        help="Proxy URL (http/https/socks5) to route browser traffic through",
     )
     return parser.parse_args(argv)
 
@@ -103,7 +110,23 @@ def _resolve_config(args: argparse.Namespace) -> SeleniumConfig:
         config = replace(config, headless=False)
 
     if proxy_arg is not None:
-        config = replace(config, proxy_url=proxy_arg, use_proxy=True)
+        scheme_override = os.getenv("GMX_PROXY_SCHEME")
+        if scheme_override and scheme_override.strip():
+            default_scheme = scheme_override.strip().lower()
+        else:
+            default_scheme = config.proxy_scheme
+
+        try:
+            proxy_url = normalise_proxy_url(proxy_arg, default_scheme=default_scheme)
+        except ProxyFormatError as exc:
+            raise ValueError(f"Invalid --proxy value: {exc}") from exc
+
+        config = replace(
+            config,
+            proxy_url=proxy_url,
+            use_proxy=True,
+            proxy_scheme=proxy_url.split("://", 1)[0].lower(),
+        )
     elif not config.use_proxy:
         config = replace(config, proxy_url=None)
 
@@ -119,7 +142,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    config = _resolve_config(args)
+    try:
+        config = _resolve_config(args)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        credential_store = CredentialStore(config.credentials_db_path)
+    except CredentialStoreError as exc:
+        logging.error("%s", exc)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if config.use_proxy and not config.proxy_url:
         print(
@@ -164,6 +198,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(asdict(registration), default=_json_encode, indent=2))
 
     if result.success:
+        try:
+            credential_store.save_success(registration, result)
+        except CredentialStoreError as exc:
+            logging.error("Failed to persist credentials: %s", exc)
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+
         logging.info("Registration succeeded for %s", result.email_address)
         return 0
 

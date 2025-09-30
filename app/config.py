@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .env_loader import ensure_env_loaded
+from .utils.proxy import ProxyFormatError, normalise_proxy_url
 
 ensure_env_loaded(require_file=False)
 
@@ -22,8 +23,10 @@ class SeleniumConfig:
     implicit_wait_s: int
     page_load_timeout_s: int
     downloads_dir: Path
+    credentials_db_path: Path
     proxy_url: str | None
     use_proxy: bool
+    proxy_scheme: str
 
 
 def _str_to_bool(value: str | None, default: bool) -> bool:
@@ -42,7 +45,33 @@ def load_config() -> SeleniumConfig:
 
     proxy_enabled = _str_to_bool(os.getenv("GMX_PROXY_ENABLED"), True)
     proxy_env = os.getenv("GMX_PROXY_URL")
-    proxy_url = proxy_env.strip() if proxy_env and proxy_env.strip() else None
+    default_proxy_scheme = os.getenv("GMX_PROXY_SCHEME", "http").strip().lower()
+    if not default_proxy_scheme:
+        default_proxy_scheme = "http"
+
+    try:
+        # Validate the scheme even if no proxy is provided.
+        normalise_proxy_url("example.com:80", default_scheme=default_proxy_scheme)
+    except ProxyFormatError as exc:
+        raise ValueError(
+            f"Invalid GMX_PROXY_SCHEME '{default_proxy_scheme}': {exc}"
+        ) from exc
+
+    sqlite_path = Path(
+        os.getenv("GMX_SQLITE_PATH", Path.cwd() / "data" / "registrations.sqlite3")
+    ).expanduser()
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+
+    proxy_url: str | None = None
+    proxy_scheme: str = default_proxy_scheme
+    if proxy_env and proxy_env.strip():
+        try:
+            proxy_url = normalise_proxy_url(
+                proxy_env, default_scheme=default_proxy_scheme
+            )
+            proxy_scheme = proxy_url.split("://", 1)[0].lower()
+        except ProxyFormatError as exc:
+            raise ValueError(f"Invalid GMX_PROXY_URL: {exc}") from exc
     if not proxy_enabled:
         proxy_url = None
 
@@ -56,6 +85,8 @@ def load_config() -> SeleniumConfig:
         implicit_wait_s=int(os.getenv("GMX_IMPLICIT_WAIT", "5")),
         page_load_timeout_s=int(os.getenv("GMX_PAGE_LOAD_TIMEOUT", "30")),
         downloads_dir=downloads_dir.resolve(),
+        credentials_db_path=sqlite_path.resolve(),
         proxy_url=proxy_url,
         use_proxy=proxy_enabled,
+        proxy_scheme=proxy_scheme,
     )

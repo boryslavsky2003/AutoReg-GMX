@@ -55,8 +55,27 @@ class GMXRegistrationPage(BasePage):
         self.locators = GMXRegistrationLocators()
 
     def open(self) -> None:
-        logger.info("Opening GMX signup page: %s", self.base_url)
-        self.driver.get(self.base_url)
+        root_url = "https://signup.gmx.com/"
+        logger.info("Opening GMX root page first: %s", root_url)
+        # Always visit the canonical root first so the site sees a consistent entry
+        # point (analytics, cookies, geo routing, etc.). If the registration form
+        # is present after visiting root we continue; otherwise fall back to the
+        # configured base_url.
+        try:
+            self.driver.get(root_url)
+            # quick probe: wait briefly for the first name field to appear
+            WebDriverWait(self.driver, 5).until(
+                EC.presence_of_element_located(self.locators.FIRST_NAME)
+            )
+            logger.debug("Registration form available on root URL")
+        except TimeoutException:
+            logger.debug(
+                "Form not present on root; navigating to configured base_url: %s",
+                self.base_url,
+            )
+            self.driver.get(self.base_url)
+
+        # Dismiss cookie banner on whichever page we're currently on
         self._dismiss_cookie_banner()
 
     def _dismiss_cookie_banner(self, timeout_s: int = 15) -> None:

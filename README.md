@@ -35,7 +35,9 @@ pip install -r requirements.txt
 ```
 # 1 — використовувати проксі, 0 — запуск без проксі
 GMX_PROXY_ENABLED=1
-GMX_PROXY_URL=http://user:password@proxy-host:port
+GMX_PROXY_SCHEME=socks5
+GMX_PROXY_URL=proxy-host:port:user:password
+GMX_SQLITE_PATH=./data/registrations.sqlite3
 ```
 
 Коли `GMX_PROXY_ENABLED=1`, значення `GMX_PROXY_URL` обов'язкове. Якщо виставити `0`, трафік піде напряму.
@@ -66,7 +68,9 @@ python -m app.main --locale uk_UA --dump-json
 | `GMX_DOWNLOAD_DIR` | `<repo>/downloads` | Тека для завантажень |
 | `GMX_LOG_LEVEL` | `INFO` | Рівень логування |
 | `GMX_PROXY_ENABLED` | `1` | 1 — використовувати проксі, 0 — вимкнути |
-| `GMX_PROXY_URL` | – | URL HTTP(S)-проксі у форматі `http://user:pass@host:port`. Використовується, якщо `GMX_PROXY_ENABLED=1` |
+| `GMX_PROXY_SCHEME` | `http` | Схема проксі за замовчуванням. Підтримуються `http`, `https`, `socks5`, `socks5h`, `socks4` |
+| `GMX_PROXY_URL` | – | Проксі у форматі `host:port` або `host:port:user:pass`. Схема додається автоматично згідно `GMX_PROXY_SCHEME`, але можна вказати повну URL вручну |
+| `GMX_SQLITE_PATH` | `<repo>/data/registrations.sqlite3` | Шлях до SQLite-бази, де зберігаються креденшіали успішно створених акаунтів |
 
 ## Формат JSON-файлу для ручних даних
 
@@ -85,6 +89,12 @@ python -m app.main --locale uk_UA --dump-json
 ```
 
 ## Примітки
+
+### Збереження креденшіалів
+
+- Після успішної реєстрації логін та пароль зберігаються у SQLite-файлі (`GMX_SQLITE_PATH`, за замовчуванням `data/registrations.sqlite3`).
+- У БД є таблиця `gmx_accounts`; повторні запуски оновлюють запис за email.
+- Переглянути вміст можна напряму через `sqlite3 data/registrations.sqlite3 "SELECT * FROM gmx_accounts;"`.
 
 - На сторінці GMX використовується CAPTCHA, тому фінальний крок може потребувати ручного підтвердження. Скрипт повідомляє про необхідність втручання.
 - Локатори елементів можуть змінюватися GMX; за потреби оновіть їх у `app/automation/gmx_registration_page.py`.
