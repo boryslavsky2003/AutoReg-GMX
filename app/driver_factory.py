@@ -309,6 +309,27 @@ def build_driver(config: SeleniumConfig) -> WebDriver:
                 f"--window-size={config.window_width},{config.window_height}"
             )
 
+            # 🔒 SSL/Security настройки для HTTPS сайтів
+            stealth_options.add_argument("--ignore-certificate-errors")
+            stealth_options.add_argument("--ignore-ssl-errors")
+            stealth_options.add_argument("--allow-running-insecure-content")
+            stealth_options.add_argument("--disable-web-security")
+            stealth_options.add_argument("--ignore-certificate-errors-spki-list")
+            stealth_options.add_argument("--ignore-urlfetcher-cert-requests")
+
+            # 🌐 Proxy налаштування для stealth браузера
+            if config.proxy_url:
+                stealth_options.add_argument(f"--proxy-server={config.proxy_url}")
+                stealth_options.add_argument("--proxy-bypass-list=<-loopback>")
+                logger.info(f"🌐 Stealth browser using proxy: {config.proxy_url}")
+
+            # 📁 Downloads налаштування
+            prefs = {
+                "download.default_directory": str(config.downloads_dir),
+                "download.prompt_for_download": False,
+            }
+            stealth_options.add_experimental_option("prefs", prefs)
+
             driver = uc.Chrome(
                 options=stealth_options,
                 version_main=None,  # Auto-detect Chrome version
