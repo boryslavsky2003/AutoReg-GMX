@@ -43,6 +43,8 @@ class CredentialStore:
                         email TEXT NOT NULL UNIQUE,
                         password TEXT NOT NULL,
                         recovery_email TEXT,
+                        geolocation TEXT,
+                        proxy_used TEXT,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         payload_json TEXT
                     )
@@ -63,6 +65,8 @@ class CredentialStore:
         self,
         registration: RegistrationData,
         result: RegistrationResult,
+        geolocation: str | None = None,
+        proxy_used: str | None = None,
     ) -> None:
         """Persist a successful registration, updating duplicates in-place."""
 
@@ -72,11 +76,13 @@ class CredentialStore:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    INSERT INTO gmx_accounts (email, password, recovery_email, payload_json)
-                    VALUES (:email, :password, :recovery_email, :payload_json)
+                    INSERT INTO gmx_accounts (email, password, recovery_email, geolocation, proxy_used, payload_json)
+                    VALUES (:email, :password, :recovery_email, :geolocation, :proxy_used, :payload_json)
                     ON CONFLICT(email) DO UPDATE SET
                         password=excluded.password,
                         recovery_email=excluded.recovery_email,
+                        geolocation=excluded.geolocation,
+                        proxy_used=excluded.proxy_used,
                         payload_json=excluded.payload_json,
                         created_at=CURRENT_TIMESTAMP
                     """,
@@ -84,6 +90,8 @@ class CredentialStore:
                         "email": registration.email_address,
                         "password": registration.password,
                         "recovery_email": registration.recovery_email,
+                        "geolocation": geolocation or "Unknown",
+                        "proxy_used": proxy_used or "None",
                         "payload_json": payload,
                     },
                 )

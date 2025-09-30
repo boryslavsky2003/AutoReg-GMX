@@ -12,6 +12,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+# Налаштовуємо красиве логування
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+try:
+    from logging_config import setup_logging
+
+    setup_logging()
+except ImportError:
+    pass  # Fallback до стандартного логування
+
 from .automation.registration_service import RegistrationOptions, RegistrationService
 from .config import SeleniumConfig, load_config
 from .data_models import RegistrationData, generate_registration_data
@@ -134,51 +143,85 @@ def _resolve_config(args: argparse.Namespace) -> SeleniumConfig:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Вітаємо користувача
+    print("""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          🚀 AutoReg-GMX v2.0                                ║
+║                      Автоматична реєстрація GMX акаунтів                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+    """)
+
     args = _parse_args(argv)
 
     try:
         ensure_env_loaded()
+        print("✅ Environment loaded successfully")
     except EnvFileNotFoundError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"❌ ERROR: {exc}", file=sys.stderr)
         return 1
 
+    print("\n🔧 Configuring application...")
     try:
         config = _resolve_config(args)
+        print("✅ Configuration loaded")
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"❌ Configuration ERROR: {exc}", file=sys.stderr)
         return 1
 
     try:
         credential_store = CredentialStore(config.credentials_db_path)
+        print("✅ Database connection established")
     except CredentialStoreError as exc:
         logging.error("%s", exc)
-        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"❌ Database ERROR: {exc}", file=sys.stderr)
         return 1
 
     if config.use_proxy and not config.proxy_url:
         print(
-            "ERROR: GMX_PROXY_URL is missing from .env. Please add your proxy URL.",
+            "❌ PROXY ERROR: GMX_PROXY_URL is missing from .env. Please add your proxy URL.",
             file=sys.stderr,
         )
         return 1
 
     configure_logging()
 
+    print(f"🔧 Browser: {'Headless' if config.headless else 'GUI'} mode")
+    if config.proxy_url:
+        print(f"🌐 Proxy: {config.proxy_url}")
     logging.getLogger(__name__).info("Using Selenium config: %s", config)
 
     if config.proxy_url:
+        print("🔍 Testing proxy connection...")
         try:
             ensure_proxy_connectivity(config.proxy_url, config.base_url)
+            print("✅ Proxy connection successful")
         except ProxyValidationError as exc:
+            print(f"❌ Proxy validation failed: {exc}")
             logging.error("Proxy validation failed: %s", exc)
             return 1
     else:
+        print("🚫 Proxy disabled")
         logging.info("Proxy disabled via GMX_PROXY_ENABLED=0")
 
+    print("\n👤 Preparing registration data...")
     if args.data_file:
         registration = _load_registration_from_file(args.data_file)
+        print(
+            f"📁 Loaded from file: {registration.first_name} {registration.last_name}"
+        )
     else:
-        registration = generate_registration_data(args.locale)
+        try:
+            registration = generate_registration_data(
+                args.locale, use_data_pool=True, mark_as_used=True
+            )
+            print(
+                f"🎲 Generated: {registration.first_name} {registration.last_name} ({registration.birthdate.strftime('%Y-%m-%d')})"
+            )
+        except ValueError as exc:
+            # Handle data pool exhaustion
+            print(f"❌ Data pool exhausted: {exc}", file=sys.stderr)
+            logging.error("Data pool exhausted: %s", exc)
+            return 1
 
     options = RegistrationOptions(
         skip_submit=args.skip_submit,
@@ -186,28 +229,64 @@ def main(argv: list[str] | None = None) -> int:
         success_url_fragment=args.success_url_fragment,
     )
 
+    print("\n🌐 Starting browser and beginning registration...")
+    print("=" * 80)
+
     service = RegistrationService(config)
     try:
         result = service.register(registration, options)
     except ChromeBinaryNotFoundError as exc:
+        print(f"❌ BROWSER ERROR: {exc}", file=sys.stderr)
         logging.error("%s", exc)
-        print(exc, file=sys.stderr)
         return 1
 
     if args.dump_json:
         print(json.dumps(asdict(registration), default=_json_encode, indent=2))
 
     if result.success:
+        # Get geolocation info (simplified for now - could be enhanced with real geo detection)
+        geolocation = "Unknown"
+        if config.proxy_url:
+            # Extract basic info from proxy URL for tracking
+            proxy_info = (
+                config.proxy_url.split("@")[-1]
+                if "@" in config.proxy_url
+                else config.proxy_url
+            )
+            geolocation = f"Proxy: {proxy_info}"
+
         try:
-            credential_store.save_success(registration, result)
+            credential_store.save_success(
+                registration,
+                result,
+                geolocation=geolocation,
+                proxy_used=config.proxy_url,
+            )
         except CredentialStoreError as exc:
             logging.error("Failed to persist credentials: %s", exc)
-            print(f"ERROR: {exc}", file=sys.stderr)
+            print(f"❌ DATABASE ERROR: {exc}", file=sys.stderr)
             return 1
 
+        print("\n" + "=" * 80)
+        print("🎉 REGISTRATION COMPLETED SUCCESSFULLY!")
+        print("=" * 80)
+        print(f"👤 Name: {registration.first_name} {registration.last_name}")
+        print(f"📧 Email: {result.email_address}")
+        print(f"🔐 Password: {registration.password}")
+        print(f"📅 Birth Date: {registration.birthdate.strftime('%B %d, %Y')}")
+        if config.proxy_url:
+            print(f"🌐 Via Proxy: {geolocation}")
         logging.info("Registration succeeded for %s", result.email_address)
         return 0
 
+    # Обробка невдалої реєстрації
+    print("\n" + "=" * 80)
+    print("💥 REGISTRATION FAILED!")
+    print("=" * 80)
+    print(f"❌ Target Email: {result.email_address}")
+    print(f"🔍 Failure Details: {result.details}")
+    print("💡 Suggestion: Try again with different proxy or wait a few minutes")
+    print("=" * 80)
     logging.error(
         "Registration incomplete for %s: %s", result.email_address, result.details
     )
