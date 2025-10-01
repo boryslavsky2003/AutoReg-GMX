@@ -35,7 +35,9 @@ class RegistrationService:
         run_options = options or RegistrationOptions()
 
         with managed_driver(self.config) as driver:
-            page = GMXRegistrationPage(driver, self.config.base_url)
+            page = GMXRegistrationPage(
+                driver, self.config.base_url, semi_auto=self.config.semi_auto
+            )
             page.open()
 
             try:

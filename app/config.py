@@ -27,6 +27,7 @@ class SeleniumConfig:
     proxy_url: str | None
     use_proxy: bool
     proxy_scheme: str
+    semi_auto: bool  # Напівавтоматичний режим
 
 
 def _str_to_bool(value: str | None, default: bool) -> bool:
@@ -75,11 +76,19 @@ def load_config() -> SeleniumConfig:
     if not proxy_enabled:
         proxy_url = None
 
+    semi_auto = _str_to_bool(os.getenv("GMX_SEMI_AUTO"), False)
+
+    # Якщо напівавтоматичний режим, примусово вимкнути headless
+    headless = _str_to_bool(os.getenv("GMX_HEADLESS"), True)
+    if semi_auto and headless:
+        headless = False
+        # Повідомлення буде виведено пізніше в main.py
+
     return SeleniumConfig(
         base_url=os.getenv(
             "GMX_BASE_URL", "https://signup.gmx.com/#.1559516-header-signup1-1"
         ),
-        headless=_str_to_bool(os.getenv("GMX_HEADLESS"), True),
+        headless=headless,
         window_width=int(os.getenv("GMX_WINDOW_WIDTH", "1920")),
         window_height=int(os.getenv("GMX_WINDOW_HEIGHT", "1080")),
         implicit_wait_s=int(os.getenv("GMX_IMPLICIT_WAIT", "5")),
@@ -89,4 +98,5 @@ def load_config() -> SeleniumConfig:
         proxy_url=proxy_url,
         use_proxy=proxy_enabled,
         proxy_scheme=proxy_scheme,
+        semi_auto=semi_auto,
     )

@@ -81,10 +81,13 @@ SECURITY_QUESTION_LABELS: dict[str, str] = {
 
 
 class GMXRegistrationPage(BasePage):
-    def __init__(self, driver, base_url: str, default_timeout: int = 20) -> None:
+    def __init__(
+        self, driver, base_url: str, default_timeout: int = 20, semi_auto: bool = False
+    ) -> None:
         super().__init__(driver=driver, default_timeout=default_timeout)
         self.base_url = base_url
         self.locators = GMXRegistrationLocators()
+        self.semi_auto = semi_auto  # Напівавтоматичний режим
 
     def open(self) -> None:
         root_url = "https://signup.gmx.com/"
@@ -543,6 +546,22 @@ class GMXRegistrationPage(BasePage):
 
     def _click_next_button(self) -> None:
         """Click the Next button to proceed to the next page."""
+
+        if self.semi_auto:
+            print("\n" + "=" * 80)
+            print("⏸️  НАПІВАВТОМАТИЧНИЙ РЕЖИМ - ПАУЗА")
+            print("=" * 80)
+            print("👤 БУДЬ ЛАСКА, ВРУЧНУ:")
+            print("   1. Перевірте заповнені дані (ім'я та дату народження)")
+            print("   2. Натисніть кнопку 'Next' на сторінці")
+            print("   3. Зачекайте завантаження наступної сторінки")
+            print()
+            input("   ⏎ Натисніть ENTER після того як натиснете 'Next' >>> ")
+            print("✅ Продовжуємо автоматичне заповнення...")
+            print("=" * 80)
+            time.sleep(2)  # Дати час на завантаження
+            return
+
         try:
             logger.info("🔄 Clicking Next button to proceed to next page...")
 
@@ -1068,6 +1087,25 @@ class GMXRegistrationPage(BasePage):
 
     def _click_check_button(self) -> bool:
         """Click the Check button to verify email availability. Returns True if successful."""
+
+        if self.semi_auto:
+            print("\n" + "=" * 80)
+            print("⏸️  НАПІВАВТОМАТИЧНИЙ РЕЖИМ - КРИТИЧНА ПАУЗА")
+            print("=" * 80)
+            print("👤 БУДЬ ЛАСКА, ВРУЧНУ:")
+            print("   1. Перевірте згенерований email адрес")
+            print("   2. Натисніть кнопку 'Check' для перевірки доступності")
+            print("   3. Якщо з'явиться CAPTCHA - пройдіть її")
+            print("   4. Зачекайте підтвердження що email доступний")
+            print()
+            print("   🚨 ЦЕ НАЙВАЖЛИВІШИЙ КРОК - тут детектується бот!")
+            print()
+            input("   ⏎ Натисніть ENTER після перевірки email >>> ")
+            print("✅ Продовжуємо реєстрацію...")
+            print("=" * 80)
+            time.sleep(1)
+            return True  # Вважаємо що користувач успішно пройшов перевірку
+
         print("🔍 Checking email availability...")
         logger.info("Clicking Check button to verify email availability")
 
